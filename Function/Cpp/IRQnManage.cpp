@@ -257,18 +257,31 @@ IRQn USART_IRQnManage::GetIRQn(USART_TypeDef* USARTx)
 template<USART::Index usart_index>
 void HandleUSART_IRQ(USART_TypeDef* usart)
 {
-    uint8_t index = static_cast<uint8_t>(usart_index);
     for (uint8_t i = 0; i < static_cast<uint8_t>(USART::IT_Index::END); ++i) {
         auto usart_it = static_cast<uint16_t>(USART::ITMap[i]);
-        if (USART_GetITStatus(usart, usart_it)) {
+
+        if (USART_GetITStatus(usart, usart_it) != RESET) {
+
+            // 关键：RXNE 不要 ClearITPendingBit
+            if (usart_it == USART_IT_RXNE) {
+                if (auto& func = USART_IRQnManage::GetHandlers(usart_index).itFuncs[i]) {
+                    func(); // 期望 func 内部读取 USART_ReceiveData() 清 RXNE
+                } else {
+                    // 没注册 handler 也要读一下 DR，把 RXNE 清掉，避免一直进中断
+                    (void)USART_ReceiveData(usart);
+                }
+                continue;
+            }
+
+            // 其他中断：维持你原来逻辑
             USART_ClearITPendingBit(usart, usart_it);
             if (auto& func = USART_IRQnManage::GetHandlers(usart_index).itFuncs[i]) {
                 func();
-            } 
+            }
         }
-        
     }
 }
+
 
 // 中断处理函数
 extern "C" void USART1_IRQHandler(void) {

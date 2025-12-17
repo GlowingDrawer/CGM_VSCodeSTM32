@@ -211,7 +211,7 @@ namespace NS_DAC {
         bool result = true;
         
         float gain = (WaveArr::s_Params.maxVal - WaveArr::s_Params.minVal) / (this->dynParams.maxVal - this->dynParams.minVal);
-        int offset = WaveArr::dynParams.minVal - WaveArr::s_Params.minVal;
+        int offset = this->dynParams.minVal - WaveArr::s_Params.minVal;
         uint16_t interval = (To_uint16(BufSize::BUF_END) - 1 ) / this->dynParams.bufSize;
         switch (wave_form) {
         case WaveForm::SINE:
@@ -273,20 +273,23 @@ namespace NS_DAC {
     }
 
     void WaveArr::ResetWaveForm(WaveForm wave_form){
-        if (wave_form != this->waveForm) {
-            switch (waveForm)
-            {
-            case WaveForm::SINE: this->waveForm = WaveForm::SINE;
-                break;
-            case WaveForm::TRIANGLE: this->waveForm = WaveForm::TRIANGLE;
-                break;
-            default: this->waveForm = WaveForm::SINE;
-                break;
-            }
-            InitArr();
+        if (wave_form == this->waveForm) {
+            return;
         }
-    }
 
+        switch (wave_form)
+        {
+        case WaveForm::SINE:
+        case WaveForm::TRIANGLE:
+            this->waveForm = wave_form;
+            break;
+        default:
+            // WaveArr仅支持查表波形（SINE/TRIANGLE），其它类型回退为SINE
+            this->waveForm = WaveForm::SINE;
+            break;
+        }
+        InitArr();
+    }
     const uint16_t* WaveArr::GetBufferAddrPtr(uint16_t index){
         uint16_t * result = nullptr;
         if (this->waveForm == WaveForm::TRIANGLE) {
@@ -396,17 +399,19 @@ namespace NS_DAC {
 
     // Private Functions of DAC_Chan_Controller
     bool DAC_ChanController::AssignDacParams(DAC_Channel dac_channel, TIM_TypeDef * timx_dac){
-        bool result = false;
+        bool result = true;
 
         this->DAC_Params.channel = dac_channel;
         this->DAC_Params.TIM = timx_dac;
 
         // DAC Sub Setup
-        this->DAC_Params.pin= (this->DAC_Params.channel == DAC_Channel::CH1? DAC_GPIO_PIN::PIN4 : DAC_GPIO_PIN::PIN5);
-        // this->DAC_Params.updateMode && this->DAC_Params.trigger;
-        AssignDacUpdateMode();
-        // this->DAC_Params.timIRQn
-        AssignDacTimIRQn();
+        this->DAC_Params.pin = (this->DAC_Params.channel == DAC_Channel::CH1 ? DAC_GPIO_PIN::PIN4 : DAC_GPIO_PIN::PIN5);
+
+        // 根据波形/模式分配更新方式与触发源
+        result &= AssignDacUpdateMode();
+
+        // 根据TIM分配中断号
+        result &= AssignDacTimIRQn();
 
         return result;
     }
@@ -417,19 +422,24 @@ namespace NS_DAC {
         switch (this->waveForm)
         {
         case WaveForm::SINE:
-        case WaveForm::TRIANGLE: this->DAC_Params.updateMode = DAC_UpdateMode::TIM_TRIG_DMA_SEND;
+        case WaveForm::TRIANGLE:
+            this->DAC_Params.updateMode = DAC_UpdateMode::TIM_TRIG_DMA_SEND;
             break;
-        case WaveForm::CV_FLUCTUATE: this->DAC_Params.updateMode = this->cvController.GetUpdateMode();
+        case WaveForm::CV_FLUCTUATE:
+            this->DAC_Params.updateMode = this->cvController.GetUpdateMode();
             break;
         case WaveForm::CV_CONSTANT:
-        case WaveForm::DC_CONSTANT: this->DAC_Params.updateMode = DAC_UpdateMode::DIRECT_UPDATE;
+        case WaveForm::DC_CONSTANT:
+            this->DAC_Params.updateMode = DAC_UpdateMode::DIRECT_UPDATE;
             break;
-        default: result = false;
+        default:
+            result = false;
             break;
         }
 
-        this->AssignDacTrigger();
-        
+        // 触发源依赖updateMode与TIM
+        result &= this->AssignDacTrigger();
+
         return result;
     }
     // DacTrigger Up Params: TIM, updateMode
@@ -456,40 +466,32 @@ namespace NS_DAC {
         if (this->DAC_Params.timIRQn == IRQN_NONE) {
             result = false;
         }
-        return true;
+        return result;
     }
 
     bool DAC_ChanController::AssignDmaParams(TIM_TypeDef * timx_dma, TIM_DMA_Source tim_dma_source){
-        bool result = false;
+        bool result = true;
+
         this->DMA_Params.TIM = timx_dma;
         this->DMA_Params.timDmaSource = tim_dma_source;
 
-        AssignDmaTrigger();
+        // 根据(TIM, DMA请求源)查表分配DMA通道
+        result &= AssignDmaTrigger(tim_dma_source);
+
         return result;
     }
     // Up Params: TIM
+    // Up Params: TIM, timDmaSource
     bool DAC_ChanController::AssignDmaTrigger(void) {
-        bool result = true;
-        this->DMA_Params.timDmaSource = TIM_DMA_Source::UP;
-        if (this->DMA_Params.TIM == TIM1) {
-            this->DMA_Params.channel = DMA1_Channel5;
-        } else if (this->DMA_Params.TIM == TIM2) {
-            this->DMA_Params.channel = DMA1_Channel2;
-        } else if (this->DMA_Params.TIM == TIM3) {
-            this->DMA_Params.channel = DMA1_Channel3;
-        } else if (this->DMA_Params.TIM == TIM4) {
-            this->DMA_Params.channel = DMA1_Channel7;
-        } else { result = false; }
-
-        return result;
+        return AssignDmaTrigger(this->DMA_Params.timDmaSource);
     }
     // DmaTrigger Up Params: TIM
     bool DAC_ChanController::AssignDmaTrigger(TIM_DMA_Source dma_tim_trigger) {
         bool result = false;
         this->DMA_Params.timDmaSource = dma_tim_trigger;
-        for (auto& timDmaMap: timDmaMap) {
-            if (this->DMA_Params.TIM == timDmaMap.TIMx && this->DMA_Params.timDmaSource == timDmaMap.DMA_Request) {
-                this->DMA_Params.channel = timDmaMap.DMA_Channel;
+        for (auto& map : timDmaMap) {
+            if (this->DMA_Params.TIM == map.TIMx && this->DMA_Params.timDmaSource == map.DMA_Request) {
+                this->DMA_Params.channel = map.DMA_Channel;
                 result = true;
                 break;
             }
@@ -848,17 +850,17 @@ namespace NS_DAC {
 
     // 获取DAC即将发送的CV值（12Bit）
     const uint16_t GetCvValToSend(void) {
-        return NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller().GetCurrentVal();
+        return NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller().GetValToSend();
     }
 
     // 获取DAC即将发送的CV值指针（12Bit）
-    const float * GetCvValToSendBuf(void) {
-        return NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller().GetCurrentValPtr();
+    const uint16_t * GetCvValToSendBuf(void) {
+        return NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller().GetValToSendPtr();
     }
 
     // 获取DAC即将发送的CV值引用（12Bit）
-    const float & GetCvValToSendRef(void) {
-        return NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller().GetCurrentValRef();
+    const uint16_t & GetCvValToSendRef(void) {
+        return NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller().GetValToSendRef();
     }
 
     NS_ADC::InitParams& CGMParams2AdcInitParams(CGM::Params &params, NS_ADC::InitParams &init_params) {
@@ -875,7 +877,7 @@ namespace NS_DAC {
     CGM::Params adcParams = CGM::CGM_250901::params;
     NS_ADC::InitParams adcInitParams = CGMParams2AdcInitParams(adcParams, adcInitParams);
 
-    NS_ADC::ADC adc(adcInitParams, NS_ADC::ShowParams(TIM3, 0.1), NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller());
+    NS_ADC::ADC adc(adcInitParams, NS_ADC::ShowParams(TIM3, 0.05), NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller());
 
     // 获取ADC DMA缓冲区头指针
     const uint16_t * GetADCDmaBufHeader(void) {
@@ -899,6 +901,11 @@ namespace NS_DAC {
     const NS_ADC::ADC & GetADCRef() {
         return adc;
     }
+
+    NS_ADC::ADC & GetADC(void) {
+    return adc;
+    }
+
 
     static void TIM_IRQn_DAC() {
         NS_DAC::DAC_Controller::dacChanCV.TIM_DAC_IRQHandler();

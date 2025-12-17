@@ -122,6 +122,17 @@ namespace NS_DAC {
         float GetCurrentVal(void) const { return this->currentVal; }
 
         uint16_t GetValToSend(void);
+        // 指向“即将发送到DAC”的12bit值（用于DMA/调试）。
+        const uint16_t * GetValToSendPtr(void) const {
+            if (this->waveForm == WaveForm::CV_FLUCTUATE) {
+                return (this->bufPtr != nullptr) ? this->bufPtr : this->bufA;
+            }
+            return &(this->cvParams.initVal);
+        }
+        const uint16_t & GetValToSendRef(void) const {
+            return *(this->GetValToSendPtr());
+        }
+
         
         const float * GetCurrentValPtr(void) const { return &(this->currentVal);}
         const float & GetCurrentValRef(void) const { return this->currentVal; }
@@ -396,55 +407,10 @@ namespace NS_DAC {
         void SetCV_Channel(DAC_Channel cv_channel = DAC_Channel::CH1);
     };
 
-    // enum ChannelState {CH1_CV, CH2_CV, CH1_SINE, CH2_SINE, CH1_TRIANGLE, CH2_TRIANGLE, DUAL_CHAN_SINE,
-    //     DUAL_CHAN_TRIANGLE, DUAL_CHAN_CONSTANT};
-    // class CvDrive
-    // {
-    // private:
-    //     DAC_Channel cvChannel;
-    //     DAC_Channel constChannel;
-    //     DAC_ChanController cvChanController;
-    //     DAC_ChanController constChanController;
-    // public:
-    //     CvDrive(DAC_Channel cv_channel, TIM_TypeDef * timx_dac, TIM_TypeDef * timx_dma, TIM_DMA_Source tim_dma_source, BufSize buf_size, CV_VoltParams volt_params, CV_Params cv_params = CV_Params(0.05f, 0.05f, ScanDIR::FORWARD), DAC_UpdateMode dac_update_mode = DAC_UpdateMode::TIM_IT_UPDATE);
-    //     ~CvDrive() = default;
-    //     void Start() { cvChanController.Start(); constChanController.Start(); }
-    // };
-    
-    // class DAC_WaveDrive : public DAC_Controller, public WaveArr, public CV_Controller
-    // {
-    // private:
-    //     // Static Variables
-    //     static constexpr uint32_t DAC_DHR12R1_ADDR = 0x4000740B;
-    //     static constexpr uint32_t DAC_DHR12R2_ADDR = 0x40007420;
-    //     // static constexpr uint32_t CV_BUFFER_SIZE = 256;    
-    //     // Chan1_Sine Chan2_Sine Chan1_Triangle Chan2_Triangle 
-    //     uint16_t singleChannel12BitArr[2][32] = {{0}, };
-    //     // DualChan_Triangle DualChan_Sine DualChan_Constant
-    //     uint32_t dualChannel12BitArr[32] = {0}; 
-    //     //Important Variables
-    //     WaveForm waveForm;
-    //     ChannelState chanState = ChannelState::CH1_CV;
-    //     DMA_Channel_TypeDef *dmaChannel  = DMA1_Channel1;
-    //     TIM_TypeDef * TIMx;   
-    //     // Functions
-    //     // 填充双通道数据(双通道同模式)         DualChan_Triangle DualChan_Sine DualChan_Constant
-    //     void FillDualChannel12bit(void);
-    //     void GPIO_Config();
-    // public:
-    //     // Construct Function
-    //     DAC_WaveDrive(WaveForm wave_form = WaveForm::TRIANGLE, DAC_Channel dac_channel_x = DAC_Channel::CH1,
-    //         DMA_Channel_TypeDef *dma_channel = DMA1_Channel1, TIM_TypeDef * timerx = TIM2);
-    //     ~DAC_WaveDrive();
-    //     int Get_DAC_Val(void);
-    //     // void TIMx_IRQHandler(void);
-    //     // void DAC_Config(uint32_t dac_channel, uint32_t dac_trigger);
-    //     // void Init(void);
-    // };
     
     const uint16_t GetCvValToSend(void);
-    const float * GetCvValToSendBuf(void);
-    const float & GetCvValToSendRef(void);
+    const uint16_t * GetCvValToSendBuf(void);
+    const uint16_t & GetCvValToSendRef(void);
 
     // 获取ADC DMA缓冲区头指针
     const uint16_t * GetADCDmaBufHeader(void);
@@ -456,6 +422,11 @@ namespace NS_DAC {
     const std::array<double, 16> & GetADCCurrentBufRef(void);
 
     const NS_ADC::ADC & GetADCRef(void);
+
+
+    // 直接返回 adc 的可写引用（用于 adc.Service()）
+    NS_ADC::ADC & GetADC(void);
+
 
     // 系统控制器类，采用单例模式实现系统级暂停与恢复
     class SystemController {

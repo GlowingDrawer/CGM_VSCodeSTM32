@@ -17,7 +17,7 @@ namespace NS_ADC
         TIM::IT tim_it = TIM::IT::UP;
 
         ShowParams() = default;
-        ShowParams(TIM_TypeDef* TIMx, float period = 0.05, TIM::IT= TIM::IT::UP) : TIMx(TIMx){
+        ShowParams(TIM_TypeDef* TIMx, float period = 0.05f, TIM::IT tim_it = TIM::IT::UP) : TIMx(TIMx), tim_it(tim_it) {
             this->period = MyCompare<float>(period, 1);
         }
     };
@@ -84,6 +84,9 @@ namespace NS_ADC
         void TIM_IRQnHandler(void);
         void DMA_IRQnHandler(void);
 
+        // 在主循环中调用：如果需要则刷新 OLED（建议 10Hz）
+        void Service();
+
         void ResetVsMode(CGM::VsMode vs_mode) {
             if (this->vsMode != vs_mode) {
                 this->vsMode = vs_mode;
@@ -92,6 +95,9 @@ namespace NS_ADC
         }
         
     private:
+        volatile bool needOledRefresh = false;
+        std::array<uint16_t, 16> snapBuf{};
+
         bool isPaused = false;  // 标记是否处于暂停状态
         TIM_TypeDef* showTim;   // 已有的定时器记录变量（用于暂停/恢复）
 
@@ -107,7 +113,7 @@ namespace NS_ADC
         std::array<uint16_t, 16> maxVal, minVal;
 
         // 存储adc通道读取的12Bit值
-        std::array<uint16_t, 16> dmaBuf; // DMA缓冲区（最多支持16通道）
+        alignas(4) std::array<uint16_t, 16> dmaBuf; // DMA缓冲区（最多支持16通道）
         // 存储adc通道对应的电流值大小(单位：mA)
         std::array<double, 16> currentBuf;
         

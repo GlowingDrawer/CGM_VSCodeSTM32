@@ -1,46 +1,22 @@
 #include "main.h"
-#include <CustomWaveCPP.h>
-#include <ShowCPP.h>
-#include <BTCPP.h>
-#include <functional>
-// #include <cJson.h>
+#include "CustomWaveCPP.h"
+#include "ShowCPP.h"
+#include "BTCPP.h"
 
+#include <cstdio>
+#include <cstdint>
+#include <cstring>
 
-// ------ 轻量JSON发送：零分配、每行一帧，末尾\n -------------
+// ==================== Forward Declarations ====================
+
 static inline void SendJsonLine(
     USART_Controller& usart,
-    float seconds,
+    uint32_t ms,
     uint16_t uric_raw,
     uint16_t ascorbic_raw,
     uint16_t glucose_raw,
-    float volt
-) {
-    // 估算：一行最长 < 128 字符，留冗余
-    // 形如：{"Seconds":12.345,"Uric":1234,"Ascorbic":567,"Glucose":890,"Volt":1.2345}\n
-    char outBuf[160];
-
-    // 数值保留位数可按需要调整：Seconds 3位小数、Volt 4位
-    // 注意：统一用英文小数点（snprintf 默认如此）
-    int n = snprintf(outBuf, sizeof(outBuf),
-        "{\"Seconds\":%.3f,\"Uric\":%u,\"Ascorbic\":%u,\"Glucose\":%u,\"Volt\":%.4f}\n",
-        seconds, (unsigned)uric_raw, (unsigned)ascorbic_raw, (unsigned)glucose_raw, volt
-    );
-
-    if (n <= 0) return;                  // 格式化失败（极少见）
-    if (n >= (int)sizeof(outBuf)) {      // 极端异常：被截断；保证有换行，仍尝试发送
-        outBuf[sizeof(outBuf) - 2] = '\n';
-        outBuf[sizeof(outBuf) - 1] = '\0';
-        n = sizeof(outBuf) - 1;
-    }
-
-    // 建议优先用 Write 直接发原始字节（最快），若没有 Write 就用 Printf("%s")
-    // 版本 A：原始发送（若你的 BT 控制器有 Write 接口，推荐）
-    // usart.Write((uint8_t*)outBuf, (uint16_t)n);
-
-    // 版本 B：兼容你现有的 bt.Printf（最小改动）
-    usart.Printf("%s", outBuf);
-}
-
+    uint16_t code12
+);
 
 enum class CommandType {
     START,
@@ -49,144 +25,260 @@ enum class CommandType {
     UNKNOWN
 };
 
-// 处理来自蓝牙的信号
-CommandType ProcessCommand(USART_Controller& usart);
+static int  my_stricmp(const char* s1, const char* s2);
+static void trim_inplace(char* s);
 
-// 定义等待动画的状态变量
-uint8_t waitAnimCount = 0;
-const char* animStr[4] = {"Waiting For Command   ", 
-                          "Waiting For Command.  ", 
-                          "Waiting For Command.. ", 
-                          "Waiting For Command..."};
+// 从 Receiver() 拼“完整一行命令”（支持 \n / \r\n），并额外容错：
+// 若发送端不带换行，收到完整的 START/PAUSE/RESUME 也会立即返回。
+static bool TryReadCommandLine(USART_Controller& usart, char* outLine, uint16_t outCap);
 
-int main(void){
+static CommandType ProcessCommandLine(
+    USART_Controller& usart,
+    const char* line,
+    CommandType lastState
+);
+
+// ============================== main ==============================
+
+int main(void) {
     OLED_Init();
-    std::function<void()> a;
 
-    auto & bt = GetStaticBt();
-
+    auto& bt = GetStaticBt();
     USART_IRQnManage::Add(bt.GetParams().USART, USART::IT::RXNE, BT_IRQHandler, 1, 3);
     bt.Start();
 
-    // 等待启动指令
     CommandType currentCommand = CommandType::UNKNOWN;
-    bt.Printf("Waiting For Command...\r\n");
-    while (currentCommand != CommandType::START)
-    {
-        if (bt.GetRxFlag()) {
-            currentCommand = ProcessCommand(bt);
+    bt.Printf("Waiting For Command... (START)\r\n");
+
+    // 等待 START（更快响应）
+    while (currentCommand != CommandType::START) {
+        char line[64];
+        if (TryReadCommandLine(bt, line, sizeof(line))) {
+            currentCommand = ProcessCommandLine(bt, line, currentCommand);
         }
-        Delay_ms(1000);
+        Delay_ms(20);
     }
 
-    const auto & adc = NS_DAC::GetADCRef();
+    // Show.patched：必须在主循环调用 adc.Service()
+    auto& adc = NS_DAC::GetADC();
+    const auto& current16BitBuf = adc.GetDmaBufferRef();
 
-    // 获取 DAC 即将发送的电压（建议保持为“伏特/或同上位机的单位”）
-    const float& currentValRef12Bit = NS_DAC::GetCvValToSendRef();
-    // ADC DMA 缓冲区（原始整数）
-    const auto & current16BitBuf = adc.GetDmaBufferRef();
-    // 系统更新计数
-    const auto & sysUpdataTimes = NS_DAC::SystemController::GetInstance().GetUpdataTimes();
+    // CV（你现在把它当作 12bit 码值用：0..4095）
+    const auto& cvValRef = NS_DAC::GetCvValToSendRef();
 
-    // —— 时间与延时设定（保持一致）——
-    uint16_t delayTimeMs = 100;                         // 每帧 100ms
-    const float secondPerTimesMs = delayTimeMs / 1.0f; // 100ms/次
-    float secondsMs = 0.0f;
+    // 系统计数：每调用一次 UpdateTimes() 就 +1（你工程现有逻辑）
+    const auto& sysUpdataTimes = NS_DAC::SystemController::GetInstance().GetUpdataTimes();
+
+    // —— 20Hz 节拍（50ms）——
+    const uint16_t loopDelayMs  = 10;  // 主循环步进（命令响应快 + adc.Service 足够勤）
+    const uint16_t sendPeriodMs = 50;  // 20Hz
+
+    uint16_t accMs = 0;
 
     while (1) {
-        if (bt.GetRxFlag()) {
-            currentCommand = ProcessCommand(bt);
+        // 1) 命令优先处理
+        char line[64];
+        if (TryReadCommandLine(bt, line, sizeof(line))) {
+            currentCommand = ProcessCommandLine(bt, line, currentCommand);
         }
 
-        if (currentCommand != CommandType::PAUSE) {
-            // 更新时间（按系统计数 × 周期，或换成更精准的硬件时间戳）
-            NS_DAC::SystemController::GetInstance().UpdateTimes();
-            secondsMs = sysUpdataTimes * secondPerTimesMs;
+        // 2) 关键：主循环刷新 OLED（Show.patched 需要）
+        adc.Service();
 
-            // 读取一次当前数据（注意越界保护）
-            uint16_t uric_raw      = current16BitBuf[0];
-            uint16_t ascorbic_raw  = current16BitBuf[1];
-            uint16_t glucose_raw   = current16BitBuf[2];
-            float    volt_value    = currentValRef12Bit; // 别再强转 uint16_t 了
+        // 3) 20Hz 上报节拍
+        accMs += loopDelayMs;
+        while (accMs >= sendPeriodMs) {
+            accMs -= sendPeriodMs;
 
-            // 可选：简单“数值 sanity 检查”，避免把异常/NaN 发送到上位机
-            auto sane = [](float x){ return (x == x) && (x > -1e6f) && (x < 1e6f); };
-            if (!sane(volt_value)) {
-                // 跳过此帧或用上一次正常值（自行选择策略）
-                // 这里选择跳过
-                goto SLEEP_AND_NEXT;
+            if (currentCommand != CommandType::PAUSE) {
+                NS_DAC::SystemController::GetInstance().UpdateTimes();
+
+                // Ms：整数毫秒（更适合上位机处理）
+                uint32_t ms = (uint32_t)sysUpdataTimes * (uint32_t)sendPeriodMs;
+
+                // ADC 原始值
+                uint16_t uric_raw     = current16BitBuf[0];
+                uint16_t ascorbic_raw = current16BitBuf[1];
+                uint16_t glucose_raw  = current16BitBuf[2];
+
+                // 12bit 码值（你当前称为“电压”其实是 code）
+                uint16_t code12 = (uint16_t)cvValRef;
+
+                SendJsonLine(bt, ms, uric_raw, ascorbic_raw, glucose_raw, code12);
             }
-
-            // —— 发送“每行一帧”的 JSON（零分配）——
-            SendJsonLine(bt, secondsMs, uric_raw, ascorbic_raw, glucose_raw, volt_value);
         }
 
-SLEEP_AND_NEXT:
-        Delay_ms(delayTimeMs);
+        Delay_ms(loopDelayMs);
     }
 }
 
+// ==================== Function Definitions ====================
 
-char * ToJsonString(char * buffer, uint16_t buffer_size, const char * key, const char * value)  {
-    snprintf(buffer, buffer_size, "\"%s\":\"%s\"", key, value);
-    return buffer;
+static inline void SendJsonLine(
+    USART_Controller& usart,
+    uint32_t ms,
+    uint16_t uric_raw,
+    uint16_t ascorbic_raw,
+    uint16_t glucose_raw,
+    uint16_t code12
+) {
+    // 全整数格式化：比浮点 printf 省 ROM/CPU
+    char outBuf[160];
+
+    // 字段：Ms + 3路 ADC 原始值 + Code12
+    int n = std::snprintf(outBuf, sizeof(outBuf),
+        "{\"Ms\":%lu,\"Uric\":%u,\"Ascorbic\":%u,\"Glucose\":%u,\"Code12\":%u}\n",
+        (unsigned long)ms,
+        (unsigned)uric_raw,
+        (unsigned)ascorbic_raw,
+        (unsigned)glucose_raw,
+        (unsigned)code12
+    );
+
+    if (n <= 0) return;
+
+    if (n >= (int)sizeof(outBuf)) {
+        // 极端截断：保证换行
+        outBuf[sizeof(outBuf) - 2] = '\n';
+        outBuf[sizeof(outBuf) - 1] = '\0';
+        n = (int)sizeof(outBuf) - 1;
+    }
+
+    usart.Write(reinterpret_cast<const uint8_t*>(outBuf), (uint16_t)n);
 }
 
-char * ToJsonString(char * buffer, uint16_t buffer_size, const char * key, const uint16_t value)  {
-    snprintf(buffer, buffer_size, "\"%s\":\"%d\"", key, value);
-    return buffer;
+static int my_stricmp(const char* s1, const char* s2) {
+    while (*s1 && *s2) {
+        char c1 = (*s1 >= 'a' && *s1 <= 'z') ? (*s1 - 'a' + 'A') : *s1;
+        char c2 = (*s2 >= 'a' && *s2 <= 'z') ? (*s2 - 'a' + 'A') : *s2;
+        if (c1 != c2) return (unsigned char)c1 - (unsigned char)c2;
+        ++s1; ++s2;
+    }
+    return (unsigned char)*s1 - (unsigned char)*s2;
 }
 
-// 四舍五入保留3位小数
-float round_to_three_decimal(float value) {
-    return (float)((int)(value * 1000)) / 1000;
+static void trim_inplace(char* s) {
+    if (!s) return;
+
+    // trim left
+    char* p = s;
+    while (*p == ' ' || *p == '\t') ++p;
+    if (p != s) std::memmove(s, p, std::strlen(p) + 1);
+
+    // trim right
+    size_t n = std::strlen(s);
+    while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t')) {
+        s[n - 1] = '\0';
+        --n;
+    }
 }
 
+static bool TryReadCommandLine(USART_Controller& usart, char* outLine, uint16_t outCap) {
+    static char lineBuf[64];
+    static uint16_t lineLen = 0;
+    static bool dropping = false;
 
-CommandType ProcessCommand(USART_Controller& usart){
-    uint8_t commandBuf[64] = {0};
-    uint16_t len = usart.Receiver(commandBuf, 63);
-    static CommandType commandType = CommandType::UNKNOWN;
-    if (len == 0) {
-        usart.Printf("No data received.\r\n");
-    } else {
-        // 移除字符串末尾的换行符（增强兼容性）
-        for (uint16_t i = 0; i < len; i++) {
-            if (commandBuf[i] == '\r' || commandBuf[i] == '\n') {
-                commandBuf[i] = '\0';
-                len = i;  // 更新有效长度
-                break;
+    uint8_t rxTmp[64];
+    uint16_t n = usart.Receiver(rxTmp, (uint16_t)(sizeof(rxTmp) - 1));
+    if (n == 0) return false;
+
+    for (uint16_t i = 0; i < n; ++i) {
+        char ch = (char)rxTmp[i];
+
+        // 行结束：\r 或 \n
+        if (ch == '\r' || ch == '\n') {
+            if (dropping) {
+                dropping = false;
+                lineLen = 0;
+                continue;
             }
+            if (lineLen == 0) continue;
+
+            lineBuf[lineLen] = '\0';
+
+            if (outCap > 0) {
+                std::strncpy(outLine, lineBuf, outCap - 1);
+                outLine[outCap - 1] = '\0';
+            }
+
+            lineLen = 0;
+            return true;
         }
-        // 不区分大小写比较（增强容错性）
-        if (strcasecmp((char*)commandBuf, "START") == 0) {
-            usart.Printf("Starting application...\r\n");
-            commandType = CommandType::START;
-            NS_DAC::SystemController::GetInstance().Start();
-        } else if (strcasecmp((char*)commandBuf, "PAUSE") == 0) {
-            usart.Printf("Pause command received.\r\n");
-            if (commandType != CommandType::START && commandType != CommandType::RESUME)
-            {
-                usart.Printf("Error: Command type is not START or RESUME.\r\n");
-            } else {
-                commandType = CommandType::PAUSE;
-                NS_DAC::SystemController::GetInstance().Pause();
-            }
-        } else if (strcasecmp((char*)commandBuf, "RESUME") == 0) {
-            usart.Printf("Resume command received.\r\n");
-            if (commandType != CommandType::PAUSE) {
-                usart.Printf("Resume command ignored. Device is not paused.\r\n");
-            } else {
-                commandType = CommandType::RESUME;
-                NS_DAC::SystemController::GetInstance().Resume();
+
+        if (dropping) continue;
+
+        if (lineLen < (uint16_t)(sizeof(lineBuf) - 1)) {
+            lineBuf[lineLen++] = ch;
+            lineBuf[lineLen] = '\0'; // 便于无换行容错比较
+
+            // 无换行容错：恰好匹配固定命令就立即返回
+            if (lineLen == 5) {
+                if (my_stricmp(lineBuf, "START") == 0 || my_stricmp(lineBuf, "PAUSE") == 0) {
+                    if (outCap > 0) {
+                        std::strncpy(outLine, lineBuf, outCap - 1);
+                        outLine[outCap - 1] = '\0';
+                    }
+                    lineLen = 0;
+                    return true;
+                }
+            } else if (lineLen == 6) {
+                if (my_stricmp(lineBuf, "RESUME") == 0) {
+                    if (outCap > 0) {
+                        std::strncpy(outLine, lineBuf, outCap - 1);
+                        outLine[outCap - 1] = '\0';
+                    }
+                    lineLen = 0;
+                    return true;
+                }
             }
         } else {
-            usart.Printf("Unknown command: %s. Use START, PAUSE or RESUME.\r\n", commandBuf);
-            commandType = CommandType::UNKNOWN;
+            // 行过长：丢弃直到下一次换行
+            dropping = true;
+            lineLen = 0;
         }
     }
 
-    return commandType;
+    return false;
 }
 
+static CommandType ProcessCommandLine(
+    USART_Controller& usart,
+    const char* line,
+    CommandType lastState
+) {
+    if (!line || !line[0]) return lastState;
 
+    char cmd[64];
+    std::strncpy(cmd, line, sizeof(cmd) - 1);
+    cmd[sizeof(cmd) - 1] = '\0';
+    trim_inplace(cmd);
+
+    if (my_stricmp(cmd, "START") == 0) {
+        usart.Printf("Starting application...\r\n");
+        NS_DAC::SystemController::GetInstance().Start();
+        return CommandType::START;
+    }
+
+    if (my_stricmp(cmd, "PAUSE") == 0) {
+        if (lastState != CommandType::START && lastState != CommandType::RESUME) {
+            usart.Printf("Error: PAUSE only valid after START/RESUME.\r\n");
+            return lastState;
+        }
+        usart.Printf("Pause command received.\r\n");
+        NS_DAC::SystemController::GetInstance().Pause();
+        return CommandType::PAUSE;
+    }
+
+    if (my_stricmp(cmd, "RESUME") == 0) {
+        if (lastState != CommandType::PAUSE) {
+            usart.Printf("Resume ignored. Device is not paused.\r\n");
+            return lastState;
+        }
+        usart.Printf("Resume command received.\r\n");
+        NS_DAC::SystemController::GetInstance().Resume();
+        return CommandType::RESUME;
+    }
+
+    usart.Printf("Unknown command: %s. Use START, PAUSE or RESUME.\r\n", cmd);
+    return CommandType::UNKNOWN;
+}

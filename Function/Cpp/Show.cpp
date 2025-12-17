@@ -115,8 +115,8 @@ namespace NS_ADC
 {
     const float ADC::stepPerVolt = 1240.9091f;
     void ADC::ShowBoardVal(uint8_t i) {
-        if (this->maxVal[i] < dmaBuf[i]) { this->maxVal[i] = dmaBuf[i]; }
-        if (this->minVal[i] > dmaBuf[i]) { this->minVal[i] = dmaBuf[i]; }
+        if (this->maxVal[i] < snapBuf[i]) { this->maxVal[i] = snapBuf[i]; }
+        if (this->minVal[i] > snapBuf[i]) { this->minVal[i] = snapBuf[i]; }
         auto difVal = MyCompare<uint16_t>(maxVal[i] - minVal[i], 4095, 0);
         this->ShowVoltage(3 + i, 6, difVal, 0, this->params.channels[i].gain);
     }
@@ -164,16 +164,29 @@ namespace NS_ADC
     }
 
     void ADC::TIM_IRQnHandler(void){
+        // 仅做“触发 + 快照”，避免在 ISR 内做 OLED I/O 与 snprintf/double 运算
         for (uint16_t i = 0; i < this->params.nbr_of_channels; i++) {
-            OLED_ShowNum(i + 1, 1, dmaBuf[i], 4);
-            this->currentBuf[i] = this->ShowVoltage(i + 1, 6, dmaBuf[i], this->refValBuf[0], this->params.channels[i].gain);
-            ShowBoardVal(i);
+            snapBuf[i] = dmaBuf[i];
         }
+        needOledRefresh = true;
     }
 
     void ADC::DMA_IRQnHandler(void){
         ShowBoardVal();
     }
+
+    void ADC::Service(){
+        if (!needOledRefresh) return;
+        needOledRefresh = false;
+
+        // 以下逻辑原先在 TIM_IRQnHandler() 中执行；现在移到主循环执行
+        for (uint16_t i = 0; i < this->params.nbr_of_channels; i++) {
+            OLED_ShowNum(i + 1, 1, snapBuf[i], 4);
+            this->currentBuf[i] = this->ShowVoltage(i + 1, 6, snapBuf[i], this->refValBuf[0], this->params.channels[i].gain);
+            ShowBoardVal(i);
+        }
+    }
+
 
     ADC::ADC(const InitParams& params, ShowParams show_params, const uint16_t ref_val,const uint16_t * ref_val_buf, CGM::VsMode vs_mode) : params(params), showParams(show_params), staticRefVal(ref_val), dynRefValBuf(ref_val_buf), vsMode(vs_mode) {
         this->adc = params.adc;
@@ -255,7 +268,7 @@ namespace NS_ADC
         
         DMA_DeInit(dma_channel);
         dma.DMA_PeripheralBaseAddr = (uint32_t)&(adc->DR);
-        dma.DMA_MemoryBaseAddr = (uint32_t)&dmaBuf;
+        dma.DMA_MemoryBaseAddr = (uint32_t)dmaBuf.data();
         dma.DMA_DIR = DMA_DIR_PeripheralSRC;
         dma.DMA_BufferSize = params.nbr_of_channels;
         dma.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
