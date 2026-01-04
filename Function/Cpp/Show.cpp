@@ -198,6 +198,7 @@ namespace NS_ADC
         }
         this->maxVal.fill(0);
         this->minVal.fill(4095);
+        this->showTim = show_params.TIMx;
 
         this->Init();
     }
@@ -207,9 +208,9 @@ namespace NS_ADC
         if(adc == ADC1) RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC1, ENABLE);
         if(adc == ADC2) RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC2, ENABLE);
         
-        // RCC_ADCCLKConfig(params.clock_prescaler);
+        RCC_ADCCLKConfig(params.clock_prescaler);
         // 2. 配置GPIO
-        // GpioConfig();
+        GpioConfig();
         
         // 3. ADC参数配置
         ADC_InitTypeDef adc_init;
@@ -242,23 +243,48 @@ namespace NS_ADC
         Calibrate();
     }
 
-    void ADC::GpioConfig() {
-        GPIO_InitTypeDef gpio;
-        gpio.GPIO_Mode = GPIO_Mode_AIN;
-        
-        // 自动配置所有通道对应的GPIO
-        for(uint8_t i=0; i<params.nbr_of_channels; ++i) {
-            uint8_t ch = params.channels[i].channel;
-            if(ch <= 9) {
-                gpio.GPIO_Pin = GPIO_Pin_0 << ch;
-                GPIO_Init(GPIOA, &gpio);
-            }
-            else if(ch <= 15) {
-                gpio.GPIO_Pin = GPIO_Pin_0 << (ch-10);
-                GPIO_Init(GPIOC, &gpio);
-            }
+    static void AdcChannelToGpio(uint8_t ch, GPIO_TypeDef*& port, uint16_t& pin) {
+
+        if (ch <= 7) {                 // PA0..PA7
+            port = GPIOA;
+            pin  = static_cast<uint16_t>(GPIO_Pin_0 << ch);
+            RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+        } else if (ch <= 9) {          // PB0..PB1
+            port = GPIOB;
+            pin  = static_cast<uint16_t>(GPIO_Pin_0 << (ch - 8));
+            RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+        } else if (ch <= 15) {         // PC0..PC5
+            port = GPIOC;
+            pin  = static_cast<uint16_t>(GPIO_Pin_0 << (ch - 10));
+            RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC, ENABLE);
+        } else {
+            port = nullptr;
+            pin  = 0;
         }
     }
+
+    void ADC::GpioConfig()
+    {
+        GPIO_InitTypeDef gpio;
+        gpio.GPIO_Mode  = GPIO_Mode_AIN;
+        gpio.GPIO_Speed = GPIO_Speed_50MHz; // AIN模式速度字段通常无关，但补上不吃亏
+
+        for (uint8_t i = 0; i < params.nbr_of_channels; ++i) {
+            const uint8_t ch = params.channels[i].channel;
+
+            GPIO_TypeDef* port;
+            uint16_t pin;
+            AdcChannelToGpio(ch, port, pin);
+            if (!port || pin == 0) {
+                // 可选：记录错误/断言
+                continue;
+            }
+
+            gpio.GPIO_Pin = pin;
+            GPIO_Init(port, &gpio);
+        }
+    }
+
 
     void ADC::DmaConfig() {
         DMA_InitTypeDef dma;

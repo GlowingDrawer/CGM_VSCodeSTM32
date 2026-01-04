@@ -77,9 +77,7 @@ namespace NS_DAC {
         explicit CV_VoltParams() = default;
         explicit CV_VoltParams(float high_volt, float low_volt, float volt_offset) : highVolt(high_volt), lowVolt(low_volt), voltOffset(volt_offset) {  
             if (high_volt < low_volt) {
-                auto temp = high_volt;
-                high_volt = low_volt;
-                low_volt = temp;
+                std::swap(high_volt, low_volt);
             }
         }
     };
@@ -219,6 +217,7 @@ namespace NS_DAC {
         //  Set wave_form
         void ResetWaveForm(WaveForm wave_form);
         const uint16_t* GetBufferAddrPtr(uint16_t index = 0);
+        const uint16_t* GetStaticBufAddrPtr(uint16_t index = 0);
         const uint16_t GetBufferVal(uint16_t index = 0);
                 
     public:

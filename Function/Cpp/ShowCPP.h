@@ -99,7 +99,7 @@ namespace NS_ADC
         std::array<uint16_t, 16> snapBuf{};
 
         bool isPaused = false;  // 标记是否处于暂停状态
-        TIM_TypeDef* showTim;   // 已有的定时器记录变量（用于暂停/恢复）
+        TIM_TypeDef* showTim = nullptr;   // 已有的定时器记录变量（用于暂停/恢复）
 
         CGM::VsMode vsMode = CGM::VsMode::STATIC;
         const InitParams params;

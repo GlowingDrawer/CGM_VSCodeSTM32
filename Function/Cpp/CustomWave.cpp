@@ -210,7 +210,13 @@ namespace NS_DAC {
     bool WaveArr::InitArr(WaveForm wave_form){
         bool result = true;
         
-        float gain = (WaveArr::s_Params.maxVal - WaveArr::s_Params.minVal) / (this->dynParams.maxVal - this->dynParams.minVal);
+        float gain = 1.0f;
+        auto den = int(dynParams.maxVal) - int(dynParams.minVal);
+        if (den == 0) { gain = 1.0f; /*或返回false*/ }
+        else gain = float(int(s_Params.maxVal)-int(s_Params.minVal)) / float(den);
+
+
+        // float gain = (WaveArr::s_Params.maxVal - WaveArr::s_Params.minVal) / (this->dynParams.maxVal - this->dynParams.minVal);
         int offset = this->dynParams.minVal - WaveArr::s_Params.minVal;
         uint16_t interval = (To_uint16(BufSize::BUF_END) - 1 ) / this->dynParams.bufSize;
         switch (wave_form) {
@@ -291,6 +297,16 @@ namespace NS_DAC {
         InitArr();
     }
     const uint16_t* WaveArr::GetBufferAddrPtr(uint16_t index){
+        uint16_t * result = nullptr;
+        if (this->waveForm == WaveForm::TRIANGLE) {
+            result = const_cast<uint16_t *>(TriangleArr(index));
+        } else if (this->waveForm == WaveForm::SINE){
+            result = const_cast<uint16_t *>(SineArr(index));
+        }
+        return result;
+    }
+
+    const uint16_t* WaveArr::GetStaticBufAddrPtr(uint16_t index){
         uint16_t * result = nullptr;
         if (this->waveForm == WaveForm::TRIANGLE) {
             result = const_cast<uint16_t *>(TriangleArr(index));

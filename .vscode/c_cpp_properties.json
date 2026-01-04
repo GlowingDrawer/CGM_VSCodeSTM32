@@ -3,12 +3,12 @@
         {
             "name": "Target 1",
             "includePath": [
-                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_Git\\Start",
-                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_Git\\Library",
-                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_Git\\User",
-                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_Git\\Hardware",
-                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_Git\\Function\\Cpp",
-                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_Git\\System",
+                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_VSCodeSTM32\\Start",
+                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_VSCodeSTM32\\Library",
+                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_VSCodeSTM32\\User",
+                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_VSCodeSTM32\\Hardware",
+                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_VSCodeSTM32\\Function\\Cpp",
+                "d:\\AppDocuments\\EDK\\RCT6_Pro\\CGM_VSCodeSTM32\\System",
                 "D:\\RigidProgram\\EDK\\Keil5MDK\\ARM\\ARMCLANG\\include",
                 "D:\\RigidProgram\\EDK\\Keil5MDK\\ARM\\ARMCLANG\\include\\libcxx"
             ],
