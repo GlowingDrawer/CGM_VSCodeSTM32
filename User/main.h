@@ -5,7 +5,8 @@
 #include "USART.h"
 #include "MyDAC.h"
 #include "CustomWaveCPP.h"
-#include "ShowCPP.h"
+#include "ADCManager.h"
+#include "InitArg.h"
 
 
 #define WE_uA_Port GPIO_Pin_1       // GPIOA_Pin_1

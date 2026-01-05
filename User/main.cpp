@@ -1,8 +1,7 @@
 #include "main.h"
 #include "CustomWaveCPP.h"
-#include "ShowCPP.h"
+#include "ADCManager.h"
 #include "BTCPP.h"
-
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -41,6 +40,10 @@ static CommandType ProcessCommandLine(
 // ============================== main ==============================
 
 int main(void) {
+
+    // 【必须添加】初始化系统滴答定时器，建议放在第一行
+    SysTickTimer::Init();
+    
     OLED_Init();
 
     auto& bt = GetStaticBt();
@@ -75,6 +78,11 @@ int main(void) {
 
     uint16_t accMs = 0;
 
+    // 假设你有一个 GetTick() 返回系统运行的毫秒数
+    // 如果没有，可以基于 SysTick 中断实现一个 volatile uint32_t uwTick;
+    uint32_t lastReportTime = 0;
+    const uint32_t REPORT_INTERVAL = 50; // 50ms
+
     while (1) {
         // 1) 命令优先处理
         char line[64];
@@ -85,12 +93,13 @@ int main(void) {
         // 2) 关键：主循环刷新 OLED（Show.patched 需要）
         adc.Service();
 
-        // 3) 20Hz 上报节拍
-        accMs += loopDelayMs;
-        while (accMs >= sendPeriodMs) {
-            accMs -= sendPeriodMs;
+        uint32_t now = SysTickTimer::GetTick();
+        if (now - lastReportTime >= REPORT_INTERVAL)
+        {
+            lastReportTime = now;
 
-            if (currentCommand != CommandType::PAUSE) {
+            if (currentCommand != CommandType::PAUSE)
+            {
                 NS_DAC::SystemController::GetInstance().UpdateTimes();
 
                 // Ms：整数毫秒（更适合上位机处理）
@@ -106,9 +115,10 @@ int main(void) {
 
                 SendJsonLine(bt, ms, uric_raw, ascorbic_raw, glucose_raw, code12);
             }
+            
         }
-
-        Delay_ms(loopDelayMs);
+        
+        Delay_ms(1);
     }
 }
 

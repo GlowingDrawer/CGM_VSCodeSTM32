@@ -106,13 +106,13 @@ virtualFolder:
             - path: Function/Cpp/CustomWave.cpp
             - path: Function/Cpp/CustomWaveCPP.h
             - path: Function/Cpp/InitArg.h
-            - path: Function/Cpp/Show.cpp
-            - path: Function/Cpp/ShowCPP.h
             - path: Function/Cpp/InitArg.cpp
             - path: Function/Cpp/IRQnManage.cpp
             - path: Function/Cpp/IRQnManage.h
             - path: Function/Cpp/DPVController.cpp
             - path: Function/Cpp/DPVController.h
+            - path: Function/Cpp/ADCManager.cpp
+            - path: Function/Cpp/ADCManager.h
           folders: []
     - name: User
       files:
