@@ -103,8 +103,6 @@ virtualFolder:
           files:
             - path: Function/Cpp/BT.cpp
             - path: Function/Cpp/BTCPP.h
-            - path: Function/Cpp/CustomWave.cpp
-            - path: Function/Cpp/CustomWaveCPP.h
             - path: Function/Cpp/InitArg.h
             - path: Function/Cpp/InitArg.cpp
             - path: Function/Cpp/IRQnManage.cpp
@@ -113,6 +111,8 @@ virtualFolder:
             - path: Function/Cpp/DPVController.h
             - path: Function/Cpp/ADCManager.cpp
             - path: Function/Cpp/ADCManager.h
+            - path: Function/Cpp/DACManager.cpp
+            - path: Function/Cpp/DACManager.h
           folders: []
     - name: User
       files:

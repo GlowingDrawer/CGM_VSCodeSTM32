@@ -4,7 +4,7 @@
 #include "BTCPP.h"
 #include "USART.h"
 #include "MyDAC.h"
-#include "CustomWaveCPP.h"
+#include "DACManager.h"
 #include "ADCManager.h"
 #include "InitArg.h"
 

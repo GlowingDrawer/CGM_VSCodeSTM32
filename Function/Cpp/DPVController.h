@@ -1,70 +1,88 @@
-#ifndef DPV_CONTROLLER_H
-#define DPV_CONTROLLER_H
-
+#pragma once
 #include "stm32f10x.h"
-#include <cstdint>
+#include "DACManager.h" // 复用其中的 CV_VoltParams 等定义
 
-// 定义最大步数(可根据实际需求调整)
-#define MAX_DPV_STEPS 1000
+// DPV 运行状态
+enum class DPV_State {
+    IDLE,
+    WAIT_BASE_TIME,   // 处于基电位，正在倒计时
+    WAIT_PULSE_TIME   // 处于脉冲电位，正在倒计时
+};
+
+// DPV 参数结构体
+struct DPV_Params {
+    float startVolt = -0.5f;
+    float endVolt = 0.5f;
+    float stepVolt = 0.005f;   // 阶梯增量
+    float pulseAmp = 0.05f;    // 脉冲幅度
+    uint16_t pulseWidthMs = 50;    // 脉冲宽 (ms)
+    uint16_t pulsePeriodMs = 200;  // 脉冲周期 (ms)
+    
+    // 构造函数...
+};
 
 class DPVController {
 private:
-    // 单例实例
     static DPVController* instance;
     
-    // DPV参数结构体
-    struct DPVParameters {
-        float initialVoltage;    // 初始电压 (V)
-        float finalVoltage;      // 终电压 (V)
-        float stepPotential;     // 步长电压 (V)
-        float pulseAmplitude;    // 脉冲幅度 (V)
-        uint32_t pulseWidth;     // 脉冲宽度 (ms)
-        uint32_t baseWidth;      // 基线宽度 (ms)
-        uint32_t stepNumber;     // 实际步数
-    } params;
+    DPV_Params params;
+    DPV_State state = DPV_State::IDLE;
+
+    // 硬件相关
+    TIM_TypeDef* timer;   // 用于 DPV 计时的定时器 (如 TIM4)
+    uint16_t dacChannel;  // DAC_Channel_1 或 2
+
+    // 运行时变量 (全部使用 DAC 码值/整数，避免 ISR 浮点运算)
+    int16_t codeStart;
+    int16_t codeEnd;
+    int16_t codeStep;     // 阶梯 DAC 增量
+    int16_t codePulse;    // 脉冲 DAC 增量
     
-    // 查表法所需的电压-时间结构
-    struct TableEntry {
-        uint16_t dacValue;       // DAC输出值
-        uint32_t duration;       // 该电压持续时间(ms)
-    };
+    int16_t currentBaseCode; // 当前基准电压 Code
     
-    // DPV查表数据
-    TableEntry dpvTable[MAX_DPV_STEPS * 2];  // 每个步骤包含2个条目
-    uint32_t tableSize;                      // 实际表大小
+    // 采样结果缓存
+    uint16_t adcRaw_Base;  // 脉冲前采样
+    uint16_t adcRaw_Pulse; // 脉冲末采样
     
-    // 私有构造函数，防止外部实例化
+    // 结果数据 (用于发送)
+    volatile bool dataReady;
+    uint16_t lastResultDiff; // I_pulse - I_base (绝对值或处理后)
+    uint16_t lastResultCode; // 对应的电压 Code
+
+    // 私有函数：转换电压
+    int16_t VoltToCode(float v);
+
     DPVController();
-    
-    // 防止拷贝和赋值
-    DPVController(const DPVController&) = delete;
-    DPVController& operator=(const DPVController&) = delete;
-    
-    // 将电压值转换为DAC输出值 (12位DAC)
-    uint16_t voltageToDac(float voltage);
-    
-    // 毫秒级延迟
-    void delayMs(uint32_t ms);
 
 public:
-    // 获取单例实例
     static DPVController* getInstance();
-    
-    // 初始化DAC硬件
-    void initDac();
-    
-    // 生成DPV查表数据
-    void generateTable(float initialV, float finalV, float stepV, 
-                      float pulseAmp, uint32_t pulseW, uint32_t baseW);
-    
-    // 执行DPV扫描
-    void runScan();
-    
-    // 获取当前查表大小(用于调试)
-    uint32_t getTableSize() const { return tableSize; }
-    
-    // 获取当前步数(用于调试)
-    uint32_t getStepCount() const { return params.stepNumber; }
-};
 
-#endif // DPV_CONTROLLER_H
+    // 初始化参数
+    void Init(TIM_TypeDef* tim, uint16_t dac_chan);
+
+    // 设置扫描参数
+    void SetParams(const DPV_Params& p);
+
+    // 控制接口
+    void Start();
+    void Stop();
+    void Pause();  // 暂停只是停止定时器
+    void Resume(); 
+
+    // 状态查询
+    bool IsRunning() const { return state != DPV_State::IDLE; }
+    bool IsDataReady() { 
+        if(dataReady) { dataReady = false; return true; } 
+        return false; 
+    }
+    
+    // 获取最新计算结果 (给 main 发送用)
+    void GetLastResult(uint16_t& diff, uint16_t& voltCode) {
+        diff = lastResultDiff;
+        voltCode = lastResultCode;
+    }
+
+    // === 核心：中断服务函数 ===
+    // 需要在 stm32f10x_it.c 的 TIMx_IRQHandler 中调用
+    void ISR_Handler();
+};

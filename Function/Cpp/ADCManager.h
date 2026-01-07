@@ -3,7 +3,7 @@
 #include "stm32f10x.h"
 #include <array>
 #include <InitArg.h>
-#include "CustomWaveCPP.h"
+#include "DACManager.h"
 
 namespace NS_ADC
 {
@@ -124,19 +124,5 @@ namespace NS_ADC
         void ShowConfig();
     };
 
-    // class ADC_Controller{
-    //     public:
-    //     static ADC adc;
-    // };
-
-    // NS_ADC::InitParams& CGMParams2AdcInitParams(CGM::Params &params, NS_ADC::InitParams &init_params);
-
-    // extern CGM::Params adcParams;
-    // extern NS_ADC::InitParams adcInitParams;
-
-    // inline ADC GetADC(){ 
-    //     static NS_ADC::ADC adc(adcInitParams, NS_ADC::ShowParams(TIM3, 0.1), NS_DAC::DAC_Controller::dacChanCV.Get_CV_Controller());
-    //     return adc;
-    // }
 
 } // namespace NS_ADC

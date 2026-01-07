@@ -1,5 +1,5 @@
 #include "main.h"
-#include "CustomWaveCPP.h"
+#include "DACManager.h"
 #include "ADCManager.h"
 #include "BTCPP.h"
 #include <cstdio>
@@ -43,7 +43,7 @@ int main(void) {
 
     // 【必须添加】初始化系统滴答定时器，建议放在第一行
     SysTickTimer::Init();
-    
+
     OLED_Init();
 
     auto& bt = GetStaticBt();
@@ -72,11 +72,7 @@ int main(void) {
     // 系统计数：每调用一次 UpdateTimes() 就 +1（你工程现有逻辑）
     const auto& sysUpdataTimes = NS_DAC::SystemController::GetInstance().GetUpdataTimes();
 
-    // —— 20Hz 节拍（50ms）——
-    const uint16_t loopDelayMs  = 10;  // 主循环步进（命令响应快 + adc.Service 足够勤）
     const uint16_t sendPeriodMs = 50;  // 20Hz
-
-    uint16_t accMs = 0;
 
     // 假设你有一个 GetTick() 返回系统运行的毫秒数
     // 如果没有，可以基于 SysTick 中断实现一个 volatile uint32_t uwTick;

@@ -9,7 +9,17 @@ namespace NS_ADC {
 
 namespace NS_DAC {
 
-    enum class WaveForm:uint8_t { SINE, TRIANGLE, DC_CONSTANT, CV_FLUCTUATE, CV_CONSTANT };
+    // 运行模式
+    enum class RunMode { CV, DPV, IT };
+    // 波形类型
+    enum class WaveForm:uint8_t {
+        SINE,
+        COS,
+        TRIANGLE,
+        CV_FLUCTUATE,   // CV 扫描
+        CONSTANT_VOLT,  // 恒电位
+        DPV_WAVE        // DPV (如果想让DPV也走这个控制器)
+    };
     enum class DAC_Channel:uint32_t { CH1 = DAC_Channel_1, CH2 = DAC_Channel_2 };
     enum class DAC_GPIO_PIN:uint16_t { PIN4 = GPIO_Pin_4, PIN5 = GPIO_Pin_5 };
     enum class DAC_Trigger:uint32_t { SOFTWARE = DAC_Trigger_Software, T2_TRGO = DAC_Trigger_T2_TRGO, 
@@ -68,6 +78,7 @@ namespace NS_DAC {
         {TIM6, DAC_Trigger::T6_TRGO},   // TIM6 >> DAC_Trigger::T6_TRGO
     };
 
+    // CV 参数 highVolt, lowVolt, voltOffset
     struct CV_VoltParams {
         float highVolt = 0.8f;
         float lowVolt = -0.8f;
@@ -170,80 +181,6 @@ namespace NS_DAC {
 
     };
 
-    struct WaveStaticParams {
-        uint16_t maxVal = 4095, minVal = 0;
-        static const std::array<uint16_t, To_uint16(BufSize::BUF_END) - 1> s_TriangleArr;
-        static const std::array<uint16_t, To_uint16(BufSize::BUF_END) - 1> s_SineArr;
-        uint16_t bufMaxSize = To_uint16(BufSize::BUF_END) - 1;
-        WaveStaticParams() = default;
-        WaveStaticParams(uint16_t max_value, uint16_t min_value) : 
-            maxVal(max_value), minVal(min_value){}
-    } ;
-
-    struct WaveDynParams {
-        uint16_t maxVal = 4095, minVal = 0;
-        float scanDuration = 0.05f;
-        float period = 16.0f;
-        uint16_t bufSize = To_uint16(BufSize::BUF_32);
-        uint16_t buffer[To_uint16(BufSize::BUF_END) - 1] {};
-        uint16_t constVal = 2048;
-        WaveDynParams() = default;
-        WaveDynParams(uint16_t max_value, uint16_t min_value, BufSize buf_size) : 
-            maxVal(max_value), minVal(min_value), bufSize(To_uint16(buf_size)){}
-    } ;
-
-    class WaveArr
-    {
-    private:
-        static bool isInit;
-
-        static WaveStaticParams s_Params;
-        
-
-        WaveDynParams dynParams;
-        WaveForm waveForm = WaveForm::SINE;
-        void InitBuffer(const uint16_t* sourceArr, float gain, int offset, uint16_t interval);
-        void InitArr() { this->InitArr(this->waveForm); }
-        bool InitArr(WaveForm wave_form);
-
-    public:
-        // Get an pointer point to TriangleArr[Index] 
-        // CAUTION: Return array head When out-of-range
-        static const uint16_t * TriangleArr(uint16_t index = 0);
-        // Get an pointer point to SineArr[Index] 
-        // CAUTION: Return array head When out-of-range
-        static const uint16_t * SineArr(uint16_t index = 0);
-
-        //  Set wave_form
-        void ResetWaveForm(WaveForm wave_form);
-        const uint16_t* GetBufferAddrPtr(uint16_t index = 0);
-        const uint16_t* GetStaticBufAddrPtr(uint16_t index = 0);
-        const uint16_t GetBufferVal(uint16_t index = 0);
-                
-    public:
-        WaveArr(WaveForm wave_form = WaveForm::SINE, BufSize buf_size  = BufSize::BUF_32);
-        // ~WaveArr();
-
-        static void ResetStaticArr(const uint16_t max_value, const uint16_t min_value, const BufSize buf_max_size = BufSize::BUF_END);
-
-        static const WaveStaticParams& GetStaticParams(void) { return WaveArr::s_Params; }
-        const WaveDynParams& GetDynParams(void) const { return this->dynParams; }
-
-        void ResetStepDuration(const float step_duration) { this->dynParams.scanDuration = step_duration;
-            this->dynParams.period = this->dynParams.scanDuration * this->dynParams.bufSize; };
-        void ResetPeriod(const float period) { this->dynParams.period = period;
-            this->dynParams.scanDuration = this->dynParams.period / (float)this->dynParams.bufSize; };
-        void ResetBufSize(const BufSize buf_size) { this->dynParams.bufSize = To_uint16(buf_size); 
-            this->dynParams.period = this->dynParams.bufSize * this->dynParams.scanDuration;
-            this->InitArr();} 
-        void ResetConstVal(const uint16_t const_val) { this->dynParams.constVal = const_val; }
-        // Show the wave array (delay_time: x (ms))
-        static void ShowStatic(uint8_t line = 4, uint16_t delay_time = 500);
-        void ShowDynamic(uint8_t line = 4, uint16_t delay_time = 500) const;
-
-        
-    };
-
     struct DAC_ParamsTypedef {
         // Sub Params pin
         DAC_Channel channel = DAC_Channel::CH1;
@@ -332,7 +269,7 @@ namespace NS_DAC {
         DAC_ParamsTypedef DAC_Params;
         DMA_ParamsTypedef DMA_Params;
 
-        WaveArr waveArr;
+
         CV_Controller cvController;
 
         float scanDuration = 0.05f;
@@ -372,7 +309,6 @@ namespace NS_DAC {
         // Get Functions
         const DAC_ParamsTypedef & Get_DAC_Params(void) {return this->DAC_Params;}
         const DMA_ParamsTypedef & Get_DMA_Params(void) {return this->DMA_Params;}
-        const WaveArr & Get_WaveArr(void) const {return this->waveArr;}
         CV_Controller & Get_CV_Controller(void) {return this->cvController;}
 
         DAC_ParamsTypedef & Modifiable_DAC_Params(void) {return this->DAC_Params;}
@@ -425,6 +361,10 @@ namespace NS_DAC {
 
     // 直接返回 adc 的可写引用（用于 adc.Service()）
     NS_ADC::ADC & GetADC(void);
+
+
+
+    
 
 
     // 系统控制器类，采用单例模式实现系统级暂停与恢复
