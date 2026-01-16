@@ -1,5 +1,6 @@
 #include "stm32f10x.h"                  // Device header
-#include "Delay.h"
+#include "Key.h"
+#include "SysTickTimer.h"
 
 /**
   * 函    数：按键初始化
@@ -31,17 +32,17 @@ uint8_t Key_GetNum(void)
 	
 	if (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_1) == 0)			//读PB1输入寄存器的状态，如果为0，则代表按键1按下
 	{
-		Delay_ms(20);											//延时消抖
+		SysTickTimer_DelayMs_C(20);											//延时消抖
 		while (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_1) == 0);	//等待按键松手
-		Delay_ms(20);											//延时消抖
+		SysTickTimer_DelayMs_C(20);											//延时消抖
 		KeyNum = 1;												//置键码为1
 	}
 	
 	if (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_11) == 0)			//读PB11输入寄存器的状态，如果为0，则代表按键2按下
 	{
-		Delay_ms(20);											//延时消抖
+		SysTickTimer_DelayMs_C(20);											//延时消抖
 		while (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_11) == 0);	//等待按键松手
-		Delay_ms(20);											//延时消抖
+		SysTickTimer_DelayMs_C(20);											//延时消抖
 		KeyNum = 2;												//置键码为2
 	}
 	

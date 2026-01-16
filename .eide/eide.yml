@@ -73,8 +73,6 @@ virtualFolder:
       folders: []
     - name: System
       files:
-        - path: System/Delay.c
-        - path: System/Delay.h
         - path: System/MyDAC.c
         - path: System/MyDAC.h
         - path: System/MyDMA.c
@@ -85,6 +83,8 @@ virtualFolder:
         - path: System/USART.h
         - path: System/GPIO.c
         - path: System/GPIO.h
+        - path: System/SysTickTimer.h
+        - path: System/SysTickTimer.cpp
       folders: []
     - name: Hardware
       files:
@@ -110,9 +110,12 @@ virtualFolder:
             - path: Function/Cpp/DPVController.cpp
             - path: Function/Cpp/DPVController.h
             - path: Function/Cpp/ADCManager.cpp
-            - path: Function/Cpp/ADCManager.h
             - path: Function/Cpp/DACManager.cpp
             - path: Function/Cpp/DACManager.h
+            - path: Function/Cpp/WaveDataManager.cpp
+            - path: Function/Cpp/WaveDataManager.h
+            - path: Function/Cpp/ADCManager.h
+            - path: Function/Cpp/DacMath.h
           folders: []
     - name: User
       files:
@@ -121,6 +124,8 @@ virtualFolder:
         - path: User/stm32f10x_it.h
         - path: User/main.h
         - path: User/main.cpp
+        - path: User/EchemConsole.cpp
+        - path: User/EchemConsole.h
       folders: []
 dependenceList: []
 outDir: build

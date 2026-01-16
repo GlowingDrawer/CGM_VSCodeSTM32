@@ -1,9 +1,16 @@
 #include "ADCManager.h"
 #include "OLED.h"
 #include "GPIO.h"
-#include "Delay.h"
+#include "SysTickTimer.h"
 #include "math.h"
-// #include <IRQnManage.h>
+#include "IRQnManage.h"
+#include <stdio.h>
+
+using std::snprintf;
+
+namespace NS_ADC { class ADC; ADC& GetStaticADC(); }
+static void ADC_ShowTimCallback() { NS_ADC::GetStaticADC().TIM_IRQnHandler(); }
+
 
 namespace NS_ADC_DISPOSIT
 {
@@ -105,7 +112,7 @@ namespace NS_ADC_DISPOSIT
         while (ADC_GetResetCalibrationStatus(ADC1) == SET);
         ADC_StartCalibration(ADC1);
         while (ADC_GetCalibrationStatus(ADC1) == SET)
-            Delay_ms(1);
+            SysTickTimer::DelayMs(1);
         ADC_SoftwareStartConvCmd(ADC1, ENABLE);
     }
 
@@ -328,23 +335,32 @@ namespace NS_ADC
 
     void ADC::ShowConfig(){
         if (showParams.TIMx == nullptr) return;
-        auto tim = showParams.TIMx;
+        TIM_TypeDef* tim = showParams.TIMx;
 
+        // Configure timebase
         TIM::InitTIM(tim, showParams.period);
 
-        TIM_Cmd(tim, ENABLE);
+        // Enable timer interrupt source
         TIM::TIM_ITConfig(tim, showParams.tim_it, ENABLE);
-        
-        // Show Once for Some necessary Show
+
+        // Register ISR callback + NVIC priority
+        (void)TIM_IRQnManage::Add(tim, showParams.tim_it, ADC_ShowTimCallback, 2, 3, ENABLE);
+
+        // Clear pending flag and start
+        TIM_ClearITPendingBit(tim, static_cast<uint16_t>(showParams.tim_it));
+        TIM_Cmd(tim, ENABLE);
+
+        // Do one-time OLED draw
         Show();
     }
+
 
     void ADC::Calibrate() {
         ADC_ResetCalibration(adc);
         while(ADC_GetResetCalibrationStatus(adc) == SET);
         ADC_StartCalibration(adc);
         while(ADC_GetCalibrationStatus(adc) == SET) {
-            Delay_ms(1);
+            SysTickTimer::DelayMs(1);
         }
     }
 
@@ -411,6 +427,46 @@ namespace NS_ADC
         ADC_SoftwareStartConvCmd(adc, ENABLE);
         while(!ADC_GetFlagStatus(adc, ADC_FLAG_EOC));
         return ADC_GetConversionValue(adc);
+    }
+
+    // =========================================================
+    // 【新增】GetStaticADC 实现
+    // =========================================================
+
+    // 辅助函数：填充 InitParams
+    InitParams& CGMParams2AdcInitParams(CGM::Params &params, InitParams &init_params) {
+        init_params.adc = ADC1;
+        init_params.mode = NS_ADC::Mode::INDEPENDENT;
+        init_params.nbr_of_channels = params.nbr_of_channels;
+        init_params.channels = &(params.adChanConfig[0]);
+        init_params.scan_mode = ENABLE;
+        init_params.cont_mode = ENABLE;
+        init_params.clock_prescaler = RCC_PCLK2_Div6;
+        return init_params;
+    }
+
+    ADC& GetStaticADC() {
+        // 静态配置，只初始化一次
+        // 注意：CGM_250901 是从 InitArg.h 中引用的最新参数配置
+        static CGM::Params adcParams = CGM::CGM_250901::params; 
+        static InitParams adcInitParams;
+        static bool inited = false;
+        
+        if (!inited) {
+            CGMParams2AdcInitParams(adcParams, adcInitParams);
+            inited = true;
+        }
+
+        // 实例化 ADC 单例
+        // 依赖注入：DAC_Manager::Chan_Scan.GetDataMgr().GetCV()
+        // 确保 DACManager 已包含在头文件中
+        static ADC instance(
+            adcInitParams, 
+            ShowParams(TIM3, 0.05f), 
+            NS_DAC::DAC_Manager::Chan_Scan.GetDataMgr().GetCV()
+        );
+        
+        return instance;
     }
 
 

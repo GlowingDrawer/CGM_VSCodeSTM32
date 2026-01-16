@@ -1,0 +1,23 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "STM32F103-ArmClang",
+      "compilerPath": "C:/Keil_v5/ARM/ARMCLANG/bin/armclang.exe",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "clang-arm",
+      "includePath": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/Function",
+        "${workspaceFolder}/Function/Cpp",
+        "C:/Keil_v5/ARM/ARMCLANG/include",
+        "C:/Keil_v5/ARM/ARMCLANG/include/c++/v1"
+      ],
+      "defines": [
+        "STM32F10X_MD",
+        "USE_STDPERIPH_DRIVER"
+      ]
+    }
+  ]
+}

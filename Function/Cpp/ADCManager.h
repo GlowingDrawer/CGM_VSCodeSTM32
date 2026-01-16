@@ -1,13 +1,11 @@
-// ADC.hpp
 #pragma once
 #include "stm32f10x.h"
 #include <array>
 #include <InitArg.h>
-#include "DACManager.h"
+#include "DACManager.h" // 确保包含 DACManager 以获取 CV_Controller 定义
 
 namespace NS_ADC
 {
-
     enum class Mode:uint32_t { INDEPENDENT = ADC_Mode_Independent, REG_INJEC_SIMULT = ADC_Mode_RegInjecSimult, REG_SIMULT_ALT_TRIG = ADC_Mode_RegSimult_AlterTrig, INJEC_SIMULT_FAST_INTERL = ADC_Mode_InjecSimult_FastInterl, INJEC_SIMULT_SLOW_INTERL = ADC_Mode_InjecSimult_SlowInterl, INJEC_SIMULT = ADC_Mode_InjecSimult, REG_SIMULT = ADC_Mode_RegSimult, FAST_INTERL = ADC_Mode_FastInterl, SLOW_INTERL = ADC_Mode_SlowInterl, ALTER_TRIG = ADC_Mode_AlterTrig };
 
     struct ShowParams
@@ -43,11 +41,14 @@ namespace NS_ADC
         
         void ResetVoltRef(uint16_t ref_val) { this->staticRefVal = ref_val; }
         void ResetVoltRef(float volt_ref) { this->staticRefVal = volt_ref * ADC::stepPerVolt; }
+        // 适配新的 CV_Controller 接口
         void ResetVoltRef(const NS_DAC::CV_Controller &cv_controller) { this->staticRefVal = cv_controller.GetCvParams().initVal; }
         void SetRefValBuf(const NS_DAC::CV_Controller &cv_controller) { this->dynRefValBuf = cv_controller.GetBufferPtr(); }
 
         // 构造函数
         explicit ADC(const InitParams& params, ShowParams show_params = ShowParams(), const uint16_t ref_val = 1249,const uint16_t * ref_val_buf = nullptr, CGM::VsMode vs_mode = CGM::VsMode::STATIC);
+        
+        // 构造函数重载：适配 CV_Controller
         explicit ADC(const InitParams& params, ShowParams show_params, const NS_DAC::CV_Controller &cv_controller) : ADC(params, show_params, cv_controller.GetCvParams().initVal, cv_controller.GetBufferPtr()) { }
         
         // 初始化ADC
@@ -55,9 +56,9 @@ namespace NS_ADC
         
         // 启动常规通道转换
         void StartConversion();
-        void Pause();           // 新增：暂停功能
-        void Resume();          // 新增：重新开始功能
-        bool IsPaused() const { return isPaused; }  // 新增：获取暂停状态（可选）
+        void Pause();           // 暂停功能
+        void Resume();          // 重新开始功能
+        bool IsPaused() const { return isPaused; }
         
         // 获取转换值（阻塞模式）
         uint16_t GetValue(uint8_t channel);
@@ -72,7 +73,6 @@ namespace NS_ADC
         DMA_Channel_TypeDef * GetDmaChannel() { return this->dmaChannel; }
         const ShowParams & GetShowParams() const { return showParams; }
 
-        
         // 校准ADC
         void Calibrate();
 
@@ -84,7 +84,7 @@ namespace NS_ADC
         void TIM_IRQnHandler(void);
         void DMA_IRQnHandler(void);
 
-        // 在主循环中调用：如果需要则刷新 OLED（建议 10Hz）
+        // 在主循环中调用
         void Service();
 
         void ResetVsMode(CGM::VsMode vs_mode) {
@@ -99,7 +99,7 @@ namespace NS_ADC
         std::array<uint16_t, 16> snapBuf{};
 
         bool isPaused = false;  // 标记是否处于暂停状态
-        TIM_TypeDef* showTim = nullptr;   // 已有的定时器记录变量（用于暂停/恢复）
+        TIM_TypeDef* showTim = nullptr;
 
         CGM::VsMode vsMode = CGM::VsMode::STATIC;
         const InitParams params;
@@ -113,7 +113,7 @@ namespace NS_ADC
         std::array<uint16_t, 16> maxVal, minVal;
 
         // 存储adc通道读取的12Bit值
-        alignas(4) std::array<uint16_t, 16> dmaBuf; // DMA缓冲区（最多支持16通道）
+        alignas(4) std::array<uint16_t, 16> dmaBuf; 
         // 存储adc通道对应的电流值大小(单位：mA)
         std::array<double, 16> currentBuf;
 
@@ -124,5 +124,7 @@ namespace NS_ADC
         void ShowConfig();
     };
 
+    // 【新增】单例访问接口
+    ADC& GetStaticADC();
 
 } // namespace NS_ADC

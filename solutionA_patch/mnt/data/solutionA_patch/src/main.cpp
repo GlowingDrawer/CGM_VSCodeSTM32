@@ -5,6 +5,7 @@
 #include "SysTickTimer.h"
 #include "IRQnManage.h"
 #include "EchemConsole.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -120,7 +121,7 @@ int main(void)
     const auto& codeRef = NS_DAC::GetCvValToSendRef();
 
     uint32_t lastReport = 0;
-    const uint32_t REPORT_MS = 100;
+    const uint32_t REPORT_MS = 50;
 
     while (1) {
         // 1) handle commands

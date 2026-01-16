@@ -1,0 +1,5 @@
+# Add these flags to your C++ compile command (CXXFLAGS):
+#   -I"<ARMCLANG_ROOT>/include"
+#   -I"<ARMCLANG_ROOT>/include/c++/v1"
+# Example (Windows paths):
+#   -I"C:/Keil_v5/ARM/ARMCLANG/include" -I"C:/Keil_v5/ARM/ARMCLANG/include/c++/v1"
